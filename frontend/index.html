@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Transcriber</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { darkMode: 'class' };
+  </script>
+</head>
+<body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-white transition duration-300">
+
+  <div class="max-w-3xl mx-auto p-6">
+    <div class="flex justify-between items-center mb-6">
+      <h1 class="text-3xl font-bold">AI Transcriber & Summarizer</h1>
+    </div>
+
+    <div class="mb-6">
+      <input type="file" id="fileInput" class="border rounded p-2 w-full dark:bg-gray-800" />
+      <button onclick="uploadFile()" class="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+        Upload & Transcribe
+      </button>
+    </div>
+
+    <div class="my-8">
+      <h2 class="text-xl font-semibold mb-2">Text to Speech</h2>
+      <textarea id="ttsInput" rows="4" class="w-full border rounded p-2 dark:bg-gray-800" placeholder="Enter text to convert to speech..."></textarea>
+      <button onclick="speakText()" class="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+        Convert to Speech
+      </button>
+      <audio id="ttsAudio" controls class="mt-4 hidden w-full"></audio>
+    </div>
+
+    <div id="historySection" class="mb-6 hidden">
+      <div class="flex justify-between items-center">
+        <h2 class="text-xl font-semibold">Upload History</h2>
+        <button onclick="deleteAllHistory()" class="text-sm text-red-600 underline hover:text-red-800">
+          Delete All History
+        </button>
+      </div>
+      <ul id="historyList" class="list-disc ml-5 mt-2"></ul>
+    </div>
+
+    <div>
+      <h3 class="text-xl font-semibold mt-6">Transcript</h3>
+      <pre id="transcript" class="bg-gray-100 dark:bg-gray-800 p-4 rounded mt-2 whitespace-pre-wrap"></pre>
+
+      <h3 class="text-xl font-semibold mt-6">Summary</h3>
+      <pre id="summary" class="bg-gray-100 dark:bg-gray-800 p-4 rounded mt-2 whitespace-pre-wrap"></pre>
+    </div>
+  </div>
+
+  <script>
+    async function uploadFile() {
+      const input = document.getElementById('fileInput');
+      if (!input.files.length) {
+        alert("Please select a file.");
+        return;
+      }
+
+      const file = input.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/transcribe", {
+          method: "POST",
+          body: formData,
+          headers: { "Accept": "application/json" }
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Server error: ${response.status}\n${errorText}`);
+        }
+
+        const result = await response.json();
+        document.getElementById("transcript").innerText = result.transcript || "No transcript returned.";
+        document.getElementById("summary").innerText = result.summary || "No summary returned.";
+
+        const history = JSON.parse(localStorage.getItem("uploadHistory") || "[]");
+        history.push({ filename: file.name, time: new Date().toLocaleString(), transcript: result.transcript });
+        localStorage.setItem("uploadHistory", JSON.stringify(history));
+        showHistory();
+
+      } catch (err) {
+        alert("Upload failed:\n" + err.message);
+        console.error("Upload failed:", err);
+      }
+    }
+
+    async function speakText() {
+      const text = document.getElementById("ttsInput").value;
+      if (!text.trim()) {
+        alert("Please enter text to convert.");
+        return;
+      }
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/text-to-speech", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text })
+        });
+
+        if (!response.ok) {
+          throw new Error("Text-to-speech failed");
+        }
+
+        const blob = await response.blob();
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = document.getElementById("ttsAudio");
+        audio.src = audioUrl;
+        audio.classList.remove("hidden");
+        audio.play();
+      } catch (err) {
+        console.error("TTS error:", err);
+        alert("TTS failed: " + err.message);
+      }
+    }
+
+    function showHistory() {
+      const history = JSON.parse(localStorage.getItem("uploadHistory") || "[]");
+      const section = document.getElementById("historySection");
+      const list = document.getElementById("historyList");
+      list.innerHTML = "";
+
+      if (history.length) {
+        section.classList.remove("hidden");
+        history.slice().reverse().forEach((entry, index) => {
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <div class="flex justify-between items-center">
+              <div>
+                <strong>${entry.filename}</strong> (${entry.time})
+              </div>
+              <button onclick="deleteHistoryItem(${history.length - 1 - index})" class="text-red-500 hover:text-red-700 ml-4" title="Delete">×</button>
+            </div>`;
+          list.appendChild(li);
+        });
+      } else {
+        section.classList.add("hidden");
+      }
+    }
+
+    function deleteHistoryItem(index) {
+      const history = JSON.parse(localStorage.getItem("uploadHistory") || "[]");
+      history.splice(index, 1);
+      localStorage.setItem("uploadHistory", JSON.stringify(history));
+      showHistory();
+    }
+
+    function deleteAllHistory() {
+      if (confirm("Are you sure you want to delete all history?")) {
+        localStorage.removeItem("uploadHistory");
+        showHistory();
+      }
+    }
+
+    window.onload = showHistory;
+  </script>
+</body>
+</html>
